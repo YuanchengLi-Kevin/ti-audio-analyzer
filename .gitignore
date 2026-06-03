@@ -1,0 +1,44 @@
+# Code Composer Studio / Eclipse build output
+Debug/
+Release/
+*/Debug/
+*/Release/
+
+# C/C++ compiler and linker outputs
+*.o
+*.obj
+*.d
+*.dep
+*.out
+*.elf
+*.hex
+*.bin
+*.map
+*.lst
+*.sym
+*.dis
+*.su
+*.stackdump
+
+# Generated build metadata
+*.mk
+*_linkInfo.xml
+ccsObjs.opt
+device.opt
+*.genlibs
+
+# CCS / Eclipse local workspace state
+.metadata/
+.launches/
+*.launch
+.clangd
+
+# Editor and OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini

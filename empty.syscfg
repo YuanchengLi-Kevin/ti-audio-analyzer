@@ -1,0 +1,89 @@
+/**
+ * These arguments were used when this file was generated. They will be automatically applied on subsequent loads
+ * via the GUI or CLI. Run CLI with '--help' for additional information on how to override these arguments.
+ * @cliArgs --device "MSPM0G350X" --part "Default" --package "LQFP-64(PM)" --product "mspm0_sdk@2.10.00.04"
+ * @v2CliArgs --device "MSPM0G3507" --package "LQFP-64(PM)" --product "mspm0_sdk@2.10.00.04"
+ * @versions {"tool":"1.26.2+4477"}
+ */
+
+/**
+ * Import the modules used in this configuration.
+ */
+const ADC12  = scripting.addModule("/ti/driverlib/ADC12", {}, false);
+const ADC121 = ADC12.addInstance();
+const DAC12  = scripting.addModule("/ti/driverlib/DAC12");
+const GPIO   = scripting.addModule("/ti/driverlib/GPIO", {}, false);
+const GPIO1  = GPIO.addInstance();
+const GPIO2  = GPIO.addInstance();
+const GPIO3  = GPIO.addInstance();
+const SYSCTL = scripting.addModule("/ti/driverlib/SYSCTL");
+const TIMER  = scripting.addModule("/ti/driverlib/TIMER", {}, false);
+const TIMER1 = TIMER.addInstance();
+
+/**
+ * Write custom configuration values to the imported modules.
+ */
+ADC121.$name                      = "AUDIO_ADC";
+ADC121.trigSrc                    = "DL_ADC12_TRIG_SRC_EVENT";
+ADC121.subChanID                  = 1;
+ADC121.enabledEvents              = ["DL_ADC12_EVENT_MEM0_RESULT_LOADED"];
+ADC121.pubChanID                  = 2;
+ADC121.adcMem0chansel             = "DL_ADC12_INPUT_CHAN_5";
+ADC121.adcMem0_name               = "ADC_MEM0";
+ADC121.enabledDMATriggers         = ["DL_ADC12_DMA_MEM0_RESULT_LOADED"];
+ADC121.sampleTime0                = "2 us";
+ADC121.enableDMA                  = false;
+ADC121.enabledInterrupts          = ["DL_ADC12_INTERRUPT_MEM0_RESULT_LOADED"];
+ADC121.peripheral.$assign         = "ADC0";
+ADC121.peripheral.adcPin5.$assign = "PB24";
+ADC121.adcPin5Config.$name        = "ti_driverlib_gpio_GPIOPinGeneric2";
+
+const Board = scripting.addModule("/ti/driverlib/Board", {}, false);
+
+DAC12.dacOutputPinEn            = true;
+DAC12.dacOutput12               = 2048;
+DAC12.dacAmplifier              = "ON";
+DAC12.peripheral.$assign        = "DAC0";
+DAC12.peripheral.OutPin.$assign = "PA15";
+DAC12.OutPinConfig.$name        = "ti_driverlib_gpio_GPIOPinGeneric3";
+
+GPIO1.$name                         = "AMP_CONTROL";
+GPIO1.port                          = "PORTB";
+GPIO1.associatedPins[0].$name       = "MAIN";
+GPIO1.associatedPins[0].ioStructure = "SD";
+GPIO1.associatedPins[0].pin.$assign = "PB6";
+
+GPIO2.port                                = "PORTB";
+GPIO2.portSegment                         = "Upper";
+GPIO2.$name                               = "USER_LED";
+GPIO2.associatedPins[0].$name             = "BLUE";
+GPIO2.associatedPins[0].launchPadShortcut = "LED2BlueEn";
+
+GPIO3.$name                          = "MICROPHONE";
+GPIO3.port                           = "PORTA";
+GPIO3.associatedPins[0].initialValue = "SET";
+GPIO3.associatedPins[0].ioStructure  = "SD";
+GPIO3.associatedPins[0].$name        = "PWR";
+GPIO3.associatedPins[0].pin.$assign  = "PA26";
+
+SYSCTL.forceDefaultClkConfig = true;
+SYSCTL.MFPCLKEn              = true;
+
+TIMER1.$name                       = "ADC_SAMPLE_TIMER";
+TIMER1.timerMode                   = "PERIODIC";
+TIMER1.timerStartTimer             = true;
+TIMER1.timerPeriod                 = "2.5e-5";
+TIMER1.event1PublisherChannel      = 1;
+TIMER1.event1ControllerInterruptEn = ["ZERO_EVENT"];
+TIMER1.peripheral.$assign          = "TIMA1";
+
+/**
+ * Pinmux solution for unlocked pins/peripherals. This ensures that minor changes to the automatic solver in a future
+ * version of the tool will not impact the pinmux you originally saw.  These lines can be completely deleted in order to
+ * re-solve from scratch.
+ */
+Board.peripheral.$suggestSolution            = "DEBUGSS";
+Board.peripheral.swclkPin.$suggestSolution   = "PA20";
+Board.peripheral.swdioPin.$suggestSolution   = "PA19";
+GPIO2.associatedPins[0].pin.$suggestSolution = "PB22";
+SYSCTL.peripheral.$suggestSolution           = "SYSCTL";
