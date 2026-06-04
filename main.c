@@ -1,3 +1,4 @@
+#include "ILI9341.h"
 #include "ti_msp_dl_config.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -30,6 +31,13 @@ static uint16_t scale_audio_sample(uint16_t sample) {
 
 int main(void) {
   SYSCFG_DL_init();
+
+  ILI9341_Init();
+
+  ILI9341_FillScreen(COLOR_BLUE);
+  ILI9341_FillRect(50, 50, 100, 100, COLOR_RED);
+
+  DL_GPIO_setPins(USER_LED_PORT, USER_LED_BLUE_PIN);
 
   NVIC_EnableIRQ(AUDIO_ADC_INST_INT_IRQN);
 
