@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#define AUDIO_FFT_SIZE 256U
+#define AUDIO_FFT_SIZE 1024U
 #define AUDIO_FFT_BIN_COUNT (AUDIO_FFT_SIZE / 2U)
 #define AUDIO_FFT_ADC_MIDPOINT 2048
 

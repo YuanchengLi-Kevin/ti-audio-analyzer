@@ -1,7 +1,6 @@
-#include "ILI9341.h"
 #include "ti_msp_dl_config.h"
 #include "utils/buffer.h"
-#include <stdbool.h>
+#include "utils/lcd.h"
 #include <stdint.h>
 
 int main(void)
@@ -13,14 +12,10 @@ int main(void)
 
   DL_ADC12_disableConversions(AUDIO_ADC_INST);
 
-  // ILI9341_Init();
+  lcd_init();
 
-  // ILI9341_FillScreen(COLOR_BLUE);
-  // ILI9341_FillRect(50, 50, 100, 100, COLOR_RED);
-
-  // DL_GPIO_setPins(USER_LED_PORT, USER_LED_BLUE_PIN);
-
-  DL_DMA_setSrcAddr(DMA, ADC_DMA_CHAN_ID, DL_ADC12_getFIFOAddress(AUDIO_ADC_INST));
+  DL_DMA_setSrcAddr(DMA, ADC_DMA_CHAN_ID,
+                    DL_ADC12_getFIFOAddress(AUDIO_ADC_INST));
   DL_DMA_setDestAddr(DMA, OUTPUT_DMA_CHAN_ID, (uint32_t)&DAC0->DATA0);
 
   buffer_init();
@@ -43,15 +38,20 @@ int main(void)
   while (1)
   {
     process_ready();
+    lcd_update_from_latest_spectrum();
   }
 }
 
 void AUDIO_ADC_INST_IRQHandler(void)
 {
+  // sampling timer triggers adc sampling
+  //
+  //  triggered by "DMA Done" event after audio has been sampled
   handle_adc_interrupt();
 }
 
 void DMA_IRQHandler(void)
 {
+  // triggered by output timer
   handle_dma_interrupt();
 }

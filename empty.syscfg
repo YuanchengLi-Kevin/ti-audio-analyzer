@@ -32,26 +32,26 @@ const ProjectConfig = scripting.addModule("/ti/project_config/ProjectConfig");
  */
 ADC121.$name                             = "AUDIO_ADC";
 ADC121.trigSrc                           = "DL_ADC12_TRIG_SRC_EVENT";
-ADC121.repeatMode                        = true;
 ADC121.subChanID                         = 1;
 ADC121.enabledEvents                     = ["DL_ADC12_EVENT_MEM0_RESULT_LOADED"];
 ADC121.pubChanID                         = 2;
-ADC121.adcMem0chansel                    = "DL_ADC12_INPUT_CHAN_5";
 ADC121.adcMem0_name                      = "ADC_MEM0";
-ADC121.enabledDMATriggers                = ["DL_ADC12_DMA_MEM1_RESULT_LOADED"];
 ADC121.sampleTime0                       = "2 us";
 ADC121.configureDMA                      = true;
+ADC121.adcMem0chansel                    = "DL_ADC12_INPUT_CHAN_5";
+ADC121.enabledDMATriggers                = ["DL_ADC12_DMA_MEM0_RESULT_LOADED"];
+ADC121.sampCnt                           = 1;
+ADC121.interruptPriority                 = "1";
+ADC121.repeatMode                        = true;
 ADC121.enabledInterrupts                 = ["DL_ADC12_INTERRUPT_DMA_DONE"];
 ADC121.enableFIFO                        = true;
-ADC121.sampCnt                           = 1;
-ADC121.peripheral.$assign                = "ADC0";
-ADC121.peripheral.adcPin5.$assign        = "PB24";
-ADC121.adcPin5Config.$name               = "ti_driverlib_gpio_GPIOPinGeneric2";
-ADC121.DMA_CHANNEL.configureTransferSize = true;
-ADC121.DMA_CHANNEL.transferSize          = 512;
-ADC121.DMA_CHANNEL.addressMode           = "f2b";
 ADC121.DMA_CHANNEL.$name                 = "ADC_DMA";
+ADC121.DMA_CHANNEL.configureTransferSize = true;
+ADC121.DMA_CHANNEL.transferSize          = 1024;
+ADC121.DMA_CHANNEL.addressMode           = "f2b";
 ADC121.DMA_CHANNEL.peripheral.$assign    = "DMA_CH1";
+ADC121.peripheral.$assign                = "ADC0";
+ADC121.adcPin5Config.$name               = "ti_driverlib_gpio_GPIOPinGeneric2";
 
 const Board = scripting.addModule("/ti/driverlib/Board", {}, false);
 
@@ -70,10 +70,10 @@ DMA.associatedChannels[0].addressMode           = "b2f";
 DMA.associatedChannels[0].srcLength             = "HALF_WORD";
 DMA.associatedChannels[0].dstLength             = "HALF_WORD";
 DMA.associatedChannels[0].configureTransferSize = true;
-DMA.associatedChannels[0].transferSize          = 512;
 DMA.associatedChannels[0].enableInterrupt       = true;
 DMA.associatedChannels[0].$name                 = "OUTPUT_DMA";
 DMA.associatedChannels[0].triggerSelect         = "FSUB_0";
+DMA.associatedChannels[0].transferSize          = 1024;
 DMA.associatedChannels[0].peripheral.$assign    = "DMA_CH0";
 
 GPIO1.$name                         = "AMP_CONTROL";
@@ -149,6 +149,7 @@ ProjectConfig.genLibCMSIS = true;
  * version of the tool will not impact the pinmux you originally saw.  These lines can be completely deleted in order to
  * re-solve from scratch.
  */
+ADC121.peripheral.adcPin5.$suggestSolution   = "PB24";
 Board.peripheral.$suggestSolution            = "DEBUGSS";
 Board.peripheral.swclkPin.$suggestSolution   = "PA20";
 Board.peripheral.swdioPin.$suggestSolution   = "PA19";
