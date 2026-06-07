@@ -1,7 +1,6 @@
 #ifndef ILI9341_H_
 #define ILI9341_H_
 
-#include "ti_msp_dl_config.h"
 #include <stdint.h>
 
 #define TFT_WIDTH  240

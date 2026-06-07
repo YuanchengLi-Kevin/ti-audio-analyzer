@@ -29,6 +29,8 @@ device.opt
 
 # CCS / Eclipse local workspace state
 .metadata/
+.settings/
+.theia/
 .launches/
 *.launch
 .clangd

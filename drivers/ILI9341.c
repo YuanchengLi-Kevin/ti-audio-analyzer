@@ -1,4 +1,5 @@
 #include "ILI9341.h"
+#include "ti_msp_dl_config.h"
 
 /* SysConfig signal names for the ILI9341 SPI and control pins. */
 #define TFT_SPI_INST SPI_LED_INST
