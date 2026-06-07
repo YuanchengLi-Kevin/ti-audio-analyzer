@@ -1,10 +1,11 @@
 #include "audio.h"
 #include "buffer.h"
+#include "fft.h"
 #include "ti_msp_dl_config.h"
 #include <stdbool.h>
 #include <stdint.h>
 
-#define FFT_SIZE 256
+#define FFT_SIZE AUDIO_FFT_SIZE
 #define ADC_FIFO_WORDS FFT_SIZE
 
 #if OUTPUT_DMA_CHAN_ID == 0
@@ -22,6 +23,8 @@ static uint16_t adc_buffer_A[FFT_SIZE];
 static uint16_t adc_buffer_B[FFT_SIZE];
 static uint16_t dac_buffer_A[FFT_SIZE];
 static uint16_t dac_buffer_B[FFT_SIZE];
+static uint16_t spectrum_magnitudes[AUDIO_FFT_BIN_COUNT];
+static volatile uint32_t spectrum_sequence = 0;
 
 static volatile bool buffer_A_ready = false;
 static volatile bool buffer_B_ready = false;
@@ -70,6 +73,12 @@ static void unpack_adc_fifo_buffer(uint16_t *dest, const volatile uint32_t *src)
   {
     dest[i] = (uint16_t)(src[i] & 0x0FFFU);
   }
+}
+
+static void update_spectrum(const uint16_t *samples)
+{
+  fft_analyze_adc_block(spectrum_magnitudes, samples);
+  spectrum_sequence++;
 }
 
 void handle_adc_capture_done(void)
@@ -172,7 +181,7 @@ void process_ready(void)
     // Process adc_A and write the results into dac_B
     prepare_dac_playback_buffer(dac_buffer_B, adc_buffer_A);
 
-    // TODO: Future FFT processing for adc_buffer_A goes here!
+    update_spectrum(adc_buffer_A);
   }
 
   if (buffer_B_ready)
@@ -182,6 +191,24 @@ void process_ready(void)
     // Process adc_B and write the results into dac_A
     prepare_dac_playback_buffer(dac_buffer_A, adc_buffer_B);
 
-    // TODO: Future FFT processing for adc_buffer_B goes here!
+    update_spectrum(adc_buffer_B);
   }
+}
+
+bool buffer_copy_latest_spectrum(uint16_t magnitudes[AUDIO_FFT_BIN_COUNT],
+                                 uint32_t *sequence)
+{
+  uint32_t start_sequence = spectrum_sequence;
+
+  for (uint32_t i = 0; i < AUDIO_FFT_BIN_COUNT; i++)
+  {
+    magnitudes[i] = spectrum_magnitudes[i];
+  }
+
+  if (sequence != NULL)
+  {
+    *sequence = start_sequence;
+  }
+
+  return start_sequence == spectrum_sequence;
 }
