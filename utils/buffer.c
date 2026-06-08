@@ -1,78 +1,51 @@
-#include "audio.h"
 #include "buffer.h"
+#include "audio.h"
 #include "fft.h"
 #include "ti_msp_dl_config.h"
 #include <stdbool.h>
 #include <stdint.h>
 
 #define FFT_SIZE AUDIO_FFT_SIZE
-#define ADC_FIFO_WORDS FFT_SIZE
 
-#if OUTPUT_DMA_CHAN_ID == 0
-#define OUTPUT_DMA_INTERRUPT DL_DMA_INTERRUPT_CHANNEL0
-#define OUTPUT_DMA_IIDX DL_DMA_EVENT_IIDX_DMACH0
-#else
-#error "Add output DMA interrupt mapping for this OUTPUT_DMA_CHAN_ID"
-#endif
+typedef enum
+{
+  SAMPLE_BUFFER_EMPTY,
+  SAMPLE_BUFFER_FILLING,
+  SAMPLE_BUFFER_READY,
+  SAMPLE_BUFFER_PROCESSING
+} sample_buffer_state_t;
 
-// In this single-sample FIFO mode, each DMA word advances one ADC sample.
-static uint32_t adc_fifo_buffer_A[ADC_FIFO_WORDS];
-static uint32_t adc_fifo_buffer_B[ADC_FIFO_WORDS];
+typedef enum
+{
+  SAMPLE_BUFFER_A,
+  SAMPLE_BUFFER_B
+} sample_buffer_id_t;
 
-static uint16_t adc_buffer_A[FFT_SIZE];
-static uint16_t adc_buffer_B[FFT_SIZE];
-static uint16_t dac_buffer_A[FFT_SIZE];
-static uint16_t dac_buffer_B[FFT_SIZE];
+static volatile uint16_t adc_buffer_A[FFT_SIZE];
+static volatile uint16_t adc_buffer_B[FFT_SIZE];
+
 static uint16_t spectrum_magnitudes[AUDIO_FFT_BIN_COUNT];
 static volatile uint32_t spectrum_sequence = 0;
+static volatile uint32_t sample_buffer_overruns = 0;
 
-static volatile bool buffer_A_ready = false;
-static volatile bool buffer_B_ready = false;
-static volatile bool adc_fifo_buffer_A_ready = false;
-static volatile bool adc_fifo_buffer_B_ready = false;
+static volatile sample_buffer_state_t buffer_A_state = SAMPLE_BUFFER_FILLING;
+static volatile sample_buffer_state_t buffer_B_state = SAMPLE_BUFFER_EMPTY;
+static volatile sample_buffer_id_t filling_buffer = SAMPLE_BUFFER_A;
+static volatile uint32_t filling_index = 0;
 
-static void configure_adc_capture_buffer(volatile uint32_t *buffer)
+static volatile uint16_t *get_buffer(sample_buffer_id_t id)
 {
-  DL_DMA_disableChannel(DMA, ADC_DMA_CHAN_ID);
-  DL_DMA_setDestAddr(DMA, ADC_DMA_CHAN_ID, (uint32_t)&buffer[0]);
-  DL_DMA_setTransferSize(DMA, ADC_DMA_CHAN_ID, ADC_FIFO_WORDS);
-  DL_DMA_enableChannel(DMA, ADC_DMA_CHAN_ID);
-
-  // ADC DMA mode is cleared after a completed transfer, so re-arm it each time.
-  DL_ADC12_setDMASamplesCnt(AUDIO_ADC_INST, 1);
-  DL_ADC12_enableDMA(AUDIO_ADC_INST);
+  return (id == SAMPLE_BUFFER_A) ? adc_buffer_A : adc_buffer_B;
 }
 
-static void configure_dac_playback_buffer(uint16_t *buffer)
+static volatile sample_buffer_state_t *get_buffer_state(sample_buffer_id_t id)
 {
-  DL_DMA_disableChannel(DMA, OUTPUT_DMA_CHAN_ID);
-  DL_DMA_setSrcAddr(DMA, OUTPUT_DMA_CHAN_ID, (uint32_t)&buffer[0]);
-  DL_DMA_setTransferSize(DMA, OUTPUT_DMA_CHAN_ID, FFT_SIZE);
-  DL_DMA_enableChannel(DMA, OUTPUT_DMA_CHAN_ID);
+  return (id == SAMPLE_BUFFER_A) ? &buffer_A_state : &buffer_B_state;
 }
 
-static void prepare_dac_playback_buffer(uint16_t *dest, const uint16_t *src)
+static sample_buffer_id_t other_buffer(sample_buffer_id_t id)
 {
-  for (uint32_t i = 0; i < FFT_SIZE; i++)
-  {
-    dest[i] = scale_audio_sample(src[i]);
-  }
-}
-
-static void fill_dac_midpoint_buffer(uint16_t *buffer)
-{
-  for (uint32_t i = 0; i < FFT_SIZE; i++)
-  {
-    buffer[i] = AUDIO_SAMPLE_MIDPOINT;
-  }
-}
-
-static void unpack_adc_fifo_buffer(uint16_t *dest, const volatile uint32_t *src)
-{
-  for (uint32_t i = 0; i < ADC_FIFO_WORDS; i++)
-  {
-    dest[i] = (uint16_t)(src[i] & 0x0FFFU);
-  }
+  return (id == SAMPLE_BUFFER_A) ? SAMPLE_BUFFER_B : SAMPLE_BUFFER_A;
 }
 
 static void update_spectrum(const uint16_t *samples)
@@ -81,53 +54,60 @@ static void update_spectrum(const uint16_t *samples)
   spectrum_sequence++;
 }
 
-void handle_adc_capture_done(void)
+static bool claim_ready_buffer(sample_buffer_id_t id)
 {
-  static bool filling_buffer_A = true;
+  volatile sample_buffer_state_t *state = get_buffer_state(id);
+  bool claimed = false;
 
-  if (filling_buffer_A)
+  __disable_irq();
+  if (*state == SAMPLE_BUFFER_READY)
   {
-    configure_adc_capture_buffer(adc_fifo_buffer_B);
-    adc_fifo_buffer_A_ready = true;
-    filling_buffer_A = false;
+    *state = SAMPLE_BUFFER_PROCESSING;
+    claimed = true;
+  }
+  __enable_irq();
+
+  return claimed;
+}
+
+static void release_processing_buffer(sample_buffer_id_t id)
+{
+  __disable_irq();
+  *get_buffer_state(id) = SAMPLE_BUFFER_EMPTY;
+  __enable_irq();
+}
+
+static void handle_sample(uint16_t sample)
+{
+  volatile uint16_t *buffer = get_buffer(filling_buffer);
+
+  DL_DAC12_output12(DAC0, sample);
+
+  buffer[filling_index] = sample;
+  filling_index++;
+
+  if (filling_index < FFT_SIZE)
+  {
+    return;
+  }
+
+  *get_buffer_state(filling_buffer) = SAMPLE_BUFFER_READY;
+
+  sample_buffer_id_t next_buffer = other_buffer(filling_buffer);
+  volatile sample_buffer_state_t *next_state = get_buffer_state(next_buffer);
+
+  if (*next_state == SAMPLE_BUFFER_EMPTY)
+  {
+    *next_state = SAMPLE_BUFFER_FILLING;
+    filling_buffer = next_buffer;
   }
   else
   {
-    configure_adc_capture_buffer(adc_fifo_buffer_A);
-    adc_fifo_buffer_B_ready = true;
-    filling_buffer_A = true;
+    sample_buffer_overruns++;
+    *get_buffer_state(filling_buffer) = SAMPLE_BUFFER_FILLING;
   }
-}
 
-void handle_dac_playback_done(void)
-{
-  static bool play_buffer_A_next = true;
-
-  if (play_buffer_A_next)
-  {
-    configure_dac_playback_buffer(dac_buffer_A);
-    play_buffer_A_next = false;
-  }
-  else
-  {
-    configure_dac_playback_buffer(dac_buffer_B);
-    play_buffer_A_next = true;
-  }
-}
-
-void handle_dma_interrupt(void)
-{
-  DL_DMA_EVENT_IIDX dma_last_iidx = DL_DMA_getPendingInterrupt(DMA);
-
-  switch (dma_last_iidx)
-  {
-  case OUTPUT_DMA_IIDX:
-    handle_dac_playback_done();
-    break;
-
-  default:
-    break;
-  }
+  filling_index = 0;
 }
 
 void handle_adc_interrupt(void)
@@ -136,9 +116,8 @@ void handle_adc_interrupt(void)
 
   switch (adc_last_iidx)
   {
-  case DL_ADC12_IIDX_DMA_DONE:
-
-    handle_adc_capture_done();
+  case DL_ADC12_IIDX_MEM0_RESULT_LOADED:
+    handle_sample((uint16_t)(DL_ADC12_getMemResult(AUDIO_ADC_INST, AUDIO_ADC_ADCMEM_ADC_MEM0) & 0x0FFFU));
     break;
 
   default:
@@ -148,50 +127,42 @@ void handle_adc_interrupt(void)
 
 void buffer_init(void)
 {
-  fill_dac_midpoint_buffer(dac_buffer_A);
-  fill_dac_midpoint_buffer(dac_buffer_B);
+  __disable_irq();
+  buffer_A_state = SAMPLE_BUFFER_FILLING;
+  buffer_B_state = SAMPLE_BUFFER_EMPTY;
+  filling_buffer = SAMPLE_BUFFER_A;
+  filling_index = 0;
+  sample_buffer_overruns = 0;
+  spectrum_sequence = 0;
+  __enable_irq();
 
-  configure_adc_capture_buffer(adc_fifo_buffer_A);
-  configure_dac_playback_buffer(dac_buffer_B);
+  DL_ADC12_disableDMA(AUDIO_ADC_INST);
+  DL_ADC12_disableDMATrigger(AUDIO_ADC_INST,
+                             DL_ADC12_DMA_MEM0_RESULT_LOADED);
+  DL_ADC12_disableDMATrigger(AUDIO_ADC_INST,
+                             DL_ADC12_DMA_MEM10_RESULT_LOADED);
+  DL_ADC12_disableFIFO(AUDIO_ADC_INST);
+  DL_ADC12_disableInterrupt(AUDIO_ADC_INST, DL_ADC12_INTERRUPT_DMA_DONE);
 
-  DL_DMA_clearInterruptStatus(DMA, OUTPUT_DMA_INTERRUPT);
-  DL_DMA_enableInterrupt(DMA, OUTPUT_DMA_INTERRUPT);
+  DL_DAC12_disableDMATrigger(DAC0);
+  DL_DAC12_disableFIFO(DAC0);
+  DL_DAC12_disableSampleTimeGenerator(DAC0);
+  DL_DAC12_disableInterrupt(DAC0, DL_DAC12_INTERRUPT_DMA_DONE);
+  DL_DAC12_output12(DAC0, AUDIO_SAMPLE_MIDPOINT);
 }
 
 void process_ready(void)
 {
-  if (adc_fifo_buffer_A_ready)
+  if (claim_ready_buffer(SAMPLE_BUFFER_A))
   {
-    adc_fifo_buffer_A_ready = false;
-    unpack_adc_fifo_buffer(adc_buffer_A, adc_fifo_buffer_A);
-    buffer_A_ready = true;
+    update_spectrum((const uint16_t *)adc_buffer_A);
+    release_processing_buffer(SAMPLE_BUFFER_A);
   }
 
-  if (adc_fifo_buffer_B_ready)
+  if (claim_ready_buffer(SAMPLE_BUFFER_B))
   {
-    adc_fifo_buffer_B_ready = false;
-    unpack_adc_fifo_buffer(adc_buffer_B, adc_fifo_buffer_B);
-    buffer_B_ready = true;
-  }
-
-  if (buffer_A_ready)
-  {
-    buffer_A_ready = false;
-
-    // Process adc_A and write the results into dac_B
-    prepare_dac_playback_buffer(dac_buffer_B, adc_buffer_A);
-
-    update_spectrum(adc_buffer_A);
-  }
-
-  if (buffer_B_ready)
-  {
-    buffer_B_ready = false;
-
-    // Process adc_B and write the results into dac_A
-    prepare_dac_playback_buffer(dac_buffer_A, adc_buffer_B);
-
-    update_spectrum(adc_buffer_B);
+    update_spectrum((const uint16_t *)adc_buffer_B);
+    release_processing_buffer(SAMPLE_BUFFER_B);
   }
 }
 

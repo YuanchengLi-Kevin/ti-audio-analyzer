@@ -6,10 +6,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-void handle_adc_capture_done(void);
-void handle_dac_playback_done(void);
-
-void handle_dma_interrupt(void);
 void handle_adc_interrupt(void);
 
 void buffer_init(void);

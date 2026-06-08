@@ -12,7 +12,6 @@
 const ADC12         = scripting.addModule("/ti/driverlib/ADC12", {}, false);
 const ADC121        = ADC12.addInstance();
 const DAC12         = scripting.addModule("/ti/driverlib/DAC12");
-const DMA           = scripting.addModule("/ti/driverlib/DMA");
 const GPIO          = scripting.addModule("/ti/driverlib/GPIO", {}, false);
 const GPIO1         = GPIO.addInstance();
 const GPIO2         = GPIO.addInstance();
@@ -24,34 +23,21 @@ const SPI1          = SPI.addInstance();
 const SYSCTL        = scripting.addModule("/ti/driverlib/SYSCTL");
 const TIMER         = scripting.addModule("/ti/driverlib/TIMER", {}, false);
 const TIMER1        = TIMER.addInstance();
-const TIMER2        = TIMER.addInstance();
 const ProjectConfig = scripting.addModule("/ti/project_config/ProjectConfig");
 
 /**
  * Write custom configuration values to the imported modules.
  */
-ADC121.$name                             = "AUDIO_ADC";
-ADC121.trigSrc                           = "DL_ADC12_TRIG_SRC_EVENT";
-ADC121.subChanID                         = 1;
-ADC121.enabledEvents                     = ["DL_ADC12_EVENT_MEM0_RESULT_LOADED"];
-ADC121.pubChanID                         = 2;
-ADC121.adcMem0_name                      = "ADC_MEM0";
-ADC121.sampleTime0                       = "2 us";
-ADC121.configureDMA                      = true;
-ADC121.adcMem0chansel                    = "DL_ADC12_INPUT_CHAN_5";
-ADC121.enabledDMATriggers                = ["DL_ADC12_DMA_MEM0_RESULT_LOADED"];
-ADC121.sampCnt                           = 1;
-ADC121.interruptPriority                 = "1";
-ADC121.repeatMode                        = true;
-ADC121.enabledInterrupts                 = ["DL_ADC12_INTERRUPT_DMA_DONE"];
-ADC121.enableFIFO                        = true;
-ADC121.DMA_CHANNEL.$name                 = "ADC_DMA";
-ADC121.DMA_CHANNEL.configureTransferSize = true;
-ADC121.DMA_CHANNEL.transferSize          = 1024;
-ADC121.DMA_CHANNEL.addressMode           = "f2b";
-ADC121.DMA_CHANNEL.peripheral.$assign    = "DMA_CH1";
-ADC121.peripheral.$assign                = "ADC0";
-ADC121.adcPin5Config.$name               = "ti_driverlib_gpio_GPIOPinGeneric2";
+ADC121.$name               = "AUDIO_ADC";
+ADC121.trigSrc             = "DL_ADC12_TRIG_SRC_EVENT";
+ADC121.subChanID           = 1;
+ADC121.adcMem0_name        = "ADC_MEM0";
+ADC121.adcMem0chansel      = "DL_ADC12_INPUT_CHAN_5";
+ADC121.repeatMode          = true;
+ADC121.enabledInterrupts   = ["DL_ADC12_INTERRUPT_MEM0_RESULT_LOADED"];
+ADC121.sampleTime0         = "10us";
+ADC121.peripheral.$assign  = "ADC0";
+ADC121.adcPin5Config.$name = "ti_driverlib_gpio_GPIOPinGeneric2";
 
 const Board = scripting.addModule("/ti/driverlib/Board", {}, false);
 
@@ -62,19 +48,6 @@ DAC12.dacOutput12               = 2048;
 DAC12.peripheral.$assign        = "DAC0";
 DAC12.peripheral.OutPin.$assign = "PA15";
 DAC12.OutPinConfig.$name        = "ti_driverlib_gpio_GPIOPinGeneric3";
-
-DMA.subscriberIndex                             = ["0"];
-DMA.sub0ChanID                                  = 3;
-DMA.associatedChannels.create(1);
-DMA.associatedChannels[0].addressMode           = "b2f";
-DMA.associatedChannels[0].srcLength             = "HALF_WORD";
-DMA.associatedChannels[0].dstLength             = "HALF_WORD";
-DMA.associatedChannels[0].configureTransferSize = true;
-DMA.associatedChannels[0].enableInterrupt       = true;
-DMA.associatedChannels[0].$name                 = "OUTPUT_DMA";
-DMA.associatedChannels[0].triggerSelect         = "FSUB_0";
-DMA.associatedChannels[0].transferSize          = 1024;
-DMA.associatedChannels[0].peripheral.$assign    = "DMA_CH0";
 
 GPIO1.$name                         = "AMP_CONTROL";
 GPIO1.port                          = "PORTB";
@@ -134,13 +107,6 @@ TIMER1.event1PublisherChannel      = 1;
 TIMER1.event1ControllerInterruptEn = ["ZERO_EVENT"];
 TIMER1.subscriberChannel           = 5;
 TIMER1.peripheral.$assign          = "TIMA1";
-
-TIMER2.$name                       = "OUTPUT_TIMER";
-TIMER2.timerMode                   = "PERIODIC";
-TIMER2.timerPeriod                 = "2.5e-5";
-TIMER2.event1PublisherChannel      = 3;
-TIMER2.event1ControllerInterruptEn = ["ZERO_EVENT"];
-TIMER2.peripheral.$assign          = "TIMG0";
 
 ProjectConfig.genLibCMSIS = true;
 
