@@ -24,7 +24,7 @@ void fft_analyze_adc_block(uint16_t magnitudes[AUDIO_FFT_BIN_COUNT], const uint1
 {
   fft_prepare_adc_input(fft_buffer, samples);
 
-  arm_cfft_q15(&arm_cfft_sR_q15_len256, fft_buffer, FFT_IFFT_FLAG, FFT_BIT_REVERSE);
+  arm_cfft_q15(&arm_cfft_sR_q15_len1024, fft_buffer, FFT_IFFT_FLAG, FFT_BIT_REVERSE);
   arm_cmplx_mag_q15(fft_buffer, magnitude_buffer, AUDIO_FFT_BIN_COUNT);
 
   for (uint32_t i = 0; i < AUDIO_FFT_BIN_COUNT; i++)

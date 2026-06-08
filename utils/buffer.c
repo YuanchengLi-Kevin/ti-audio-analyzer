@@ -117,7 +117,8 @@ void handle_adc_interrupt(void)
   switch (adc_last_iidx)
   {
   case DL_ADC12_IIDX_MEM0_RESULT_LOADED:
-    handle_sample((uint16_t)(DL_ADC12_getMemResult(AUDIO_ADC_INST, AUDIO_ADC_ADCMEM_ADC_MEM0) & 0x0FFFU));
+    uint16_t scaled_sample = scale_audio_sample((uint16_t)(DL_ADC12_getMemResult(AUDIO_ADC_INST, AUDIO_ADC_ADCMEM_ADC_MEM0) & 0x0FFFU));
+    handle_sample(scaled_sample);
     break;
 
   default:

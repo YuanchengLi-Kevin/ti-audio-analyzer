@@ -33,9 +33,10 @@ ADC121.trigSrc             = "DL_ADC12_TRIG_SRC_EVENT";
 ADC121.subChanID           = 1;
 ADC121.adcMem0_name        = "ADC_MEM0";
 ADC121.adcMem0chansel      = "DL_ADC12_INPUT_CHAN_5";
-ADC121.repeatMode          = true;
 ADC121.enabledInterrupts   = ["DL_ADC12_INTERRUPT_MEM0_RESULT_LOADED"];
-ADC121.sampleTime0         = "10us";
+ADC121.repeatMode          = true;
+ADC121.powerDownMode       = "DL_ADC12_POWER_DOWN_MODE_MANUAL";
+ADC121.sampleTime0         = "25us";
 ADC121.peripheral.$assign  = "ADC0";
 ADC121.adcPin5Config.$name = "ti_driverlib_gpio_GPIOPinGeneric2";
 
@@ -102,10 +103,10 @@ SYSCTL.MFPCLKEn              = true;
 
 TIMER1.$name                       = "ADC_SAMPLE_TIMER";
 TIMER1.timerMode                   = "PERIODIC";
-TIMER1.timerPeriod                 = "2.5e-5";
 TIMER1.event1PublisherChannel      = 1;
 TIMER1.event1ControllerInterruptEn = ["ZERO_EVENT"];
 TIMER1.subscriberChannel           = 5;
+TIMER1.timerPeriod                 = "5e-5";
 TIMER1.peripheral.$assign          = "TIMA1";
 
 ProjectConfig.genLibCMSIS = true;

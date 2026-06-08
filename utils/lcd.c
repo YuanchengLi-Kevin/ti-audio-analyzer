@@ -3,48 +3,100 @@
 #include "ILI9341.h"
 #include "buffer.h"
 
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 
-#define LCD_BAR_COUNT 40U
+#define LCD_BAR_COUNT 24U
 #define LCD_BIN_START 1U
 #define LCD_FRAME_SKIP 4U
+#define LCD_SAMPLE_RATE_HZ 40000U
+#define LCD_MAX_FREQ_HZ 1000U
+#define LCD_LOG_CURVE 1.0f
+#define LCD_MAX_BIN_EXCLUSIVE \
+  (((LCD_MAX_FREQ_HZ * AUDIO_FFT_SIZE) / LCD_SAMPLE_RATE_HZ) + 1U)
+#define LCD_DISPLAY_BIN_COUNT (LCD_MAX_BIN_EXCLUSIVE - LCD_BIN_START)
+
+#if LCD_MAX_BIN_EXCLUSIVE > AUDIO_FFT_BIN_COUNT
+#error "LCD_MAX_FREQ_HZ exceeds the usable FFT output range."
+#endif
+
+#if LCD_BAR_COUNT > LCD_DISPLAY_BIN_COUNT
+#error "LCD_BAR_COUNT must not exceed the number of displayed FFT bins."
+#endif
 
 #define LCD_PLOT_X 0U
 #define LCD_PLOT_Y 8U
 #define LCD_PLOT_WIDTH TFT_WIDTH
-#define LCD_PLOT_HEIGHT 304U
+#define LCD_PLOT_HEIGHT (TFT_HEIGHT - LCD_PLOT_Y)
 
 #define LCD_BAR_GAP 1U
-#define LCD_BAR_WIDTH ((LCD_PLOT_WIDTH / LCD_BAR_COUNT) - LCD_BAR_GAP)
-#define LCD_BAR_STRIDE (LCD_BAR_WIDTH + LCD_BAR_GAP)
-#define LCD_BASELINE_Y (LCD_PLOT_Y + LCD_PLOT_HEIGHT)
+#define LCD_BAR_HEIGHT ((LCD_PLOT_HEIGHT / LCD_BAR_COUNT) - LCD_BAR_GAP)
+#define LCD_BAR_STRIDE (LCD_BAR_HEIGHT + LCD_BAR_GAP)
 
 #define LCD_MIN_SCALE 256U
 #define LCD_PEAK_DECAY_NUM 15U
 #define LCD_PEAK_DECAY_DEN 16U
+#define LCD_DB_RANGE 30.0f
+#define LCD_MIN_MAGNITUDE 1.0f
+#define LCD_NOISE_FLOOR_MAGNITUDE 1U
 
-static uint16_t previous_heights[LCD_BAR_COUNT];
+static uint16_t previous_widths[LCD_BAR_COUNT];
 static uint16_t previous_colors[LCD_BAR_COUNT];
+static uint16_t log_bin_edges[LCD_BAR_COUNT + 1U];
 static uint16_t display_peak = LCD_MIN_SCALE;
 static uint32_t last_drawn_sequence = 0;
 static bool has_drawn_sequence = false;
+static bool has_calculated_edges = false;
 
 static uint16_t max_u16(uint16_t a, uint16_t b)
 {
   return (a > b) ? a : b;
 }
 
-static uint16_t spectrum_color_for_height(uint16_t height)
+static void calculate_log_bin_edges(void)
 {
-  uint32_t high_threshold = (LCD_PLOT_HEIGHT * 3U) / 4U;
-  uint32_t mid_threshold = LCD_PLOT_HEIGHT / 2U;
+  float start = (float)LCD_BIN_START;
+  float end = (float)LCD_MAX_BIN_EXCLUSIVE;
+  float ratio = end / start;
 
-  if (height >= high_threshold)
+  log_bin_edges[0] = LCD_BIN_START;
+  log_bin_edges[LCD_BAR_COUNT] = LCD_MAX_BIN_EXCLUSIVE;
+
+  for (uint32_t i = 1U; i < LCD_BAR_COUNT; i++)
+  {
+    float t = (float)i / (float)LCD_BAR_COUNT;
+    float curved_t = powf(t, LCD_LOG_CURVE);
+    uint32_t edge =
+        (uint32_t)((start * powf(ratio, curved_t)) + 0.5f);
+    uint32_t min_edge = (uint32_t)log_bin_edges[i - 1U] + 1U;
+    uint32_t max_edge = LCD_MAX_BIN_EXCLUSIVE - (LCD_BAR_COUNT - i);
+
+    if (edge < min_edge)
+    {
+      edge = min_edge;
+    }
+    if (edge > max_edge)
+    {
+      edge = max_edge;
+    }
+
+    log_bin_edges[i] = (uint16_t)edge;
+  }
+
+  has_calculated_edges = true;
+}
+
+static uint16_t spectrum_color_for_width(uint16_t width)
+{
+  uint32_t high_threshold = (LCD_PLOT_WIDTH * 3U) / 4U;
+  uint32_t mid_threshold = LCD_PLOT_WIDTH / 2U;
+
+  if (width >= high_threshold)
   {
     return COLOR_RED;
   }
-  if (height >= mid_threshold)
+  if (width >= mid_threshold)
   {
     return COLOR_YELLOW;
   }
@@ -54,8 +106,9 @@ static uint16_t spectrum_color_for_height(uint16_t height)
 static uint16_t find_spectrum_peak(const uint16_t magnitudes[AUDIO_FFT_BIN_COUNT])
 {
   uint16_t peak = LCD_MIN_SCALE;
+  uint32_t end = log_bin_edges[LCD_BAR_COUNT];
 
-  for (uint32_t i = LCD_BIN_START; i < AUDIO_FFT_BIN_COUNT; i++)
+  for (uint32_t i = LCD_BIN_START; i < end; i++)
   {
     peak = max_u16(peak, magnitudes[i]);
   }
@@ -81,16 +134,8 @@ static void update_display_peak(uint16_t frame_peak)
 static uint16_t average_bin_group(const uint16_t magnitudes[AUDIO_FFT_BIN_COUNT],
                                   uint32_t bar_index)
 {
-  const uint32_t usable_bins = AUDIO_FFT_BIN_COUNT - LCD_BIN_START;
-  const uint32_t start =
-      LCD_BIN_START + ((bar_index * usable_bins) / LCD_BAR_COUNT);
-  uint32_t end =
-      LCD_BIN_START + (((bar_index + 1U) * usable_bins) / LCD_BAR_COUNT);
-
-  if (end <= start)
-  {
-    end = start + 1U;
-  }
+  const uint32_t start = log_bin_edges[bar_index];
+  const uint32_t end = log_bin_edges[bar_index + 1U];
 
   uint32_t sum = 0;
   for (uint32_t i = start; i < end; i++)
@@ -101,72 +146,90 @@ static uint16_t average_bin_group(const uint16_t magnitudes[AUDIO_FFT_BIN_COUNT]
   return (uint16_t)(sum / (end - start));
 }
 
-static uint16_t magnitude_to_height(uint16_t magnitude)
+static uint16_t magnitude_to_width(uint16_t magnitude)
 {
-  uint32_t height = ((uint32_t)magnitude * LCD_PLOT_HEIGHT) / display_peak;
-
-  if (height > LCD_PLOT_HEIGHT)
+  if (magnitude < LCD_NOISE_FLOOR_MAGNITUDE)
   {
-    height = LCD_PLOT_HEIGHT;
+    return 0U;
   }
 
-  return (uint16_t)height;
+  float mag = (float)magnitude;
+  float peak = (float)display_peak;
+
+  if (mag < LCD_MIN_MAGNITUDE)
+  {
+    mag = LCD_MIN_MAGNITUDE;
+  }
+  if (peak < LCD_MIN_MAGNITUDE)
+  {
+    peak = LCD_MIN_MAGNITUDE;
+  }
+
+  float db = 20.0f * log10f(mag / peak);
+
+  if (db <= -LCD_DB_RANGE)
+  {
+    return 0U;
+  }
+  if (db > 0.0f)
+  {
+    db = 0.0f;
+  }
+
+  float width = ((db + LCD_DB_RANGE) * (float)LCD_PLOT_WIDTH) / LCD_DB_RANGE;
+
+  return (uint16_t)width;
 }
 
-static void draw_bar_delta(uint32_t bar_index, uint16_t new_height)
+static void draw_bar_delta(uint32_t bar_index, uint16_t new_width)
 {
-  uint16_t old_height = previous_heights[bar_index];
+  uint16_t old_width = previous_widths[bar_index];
   uint16_t old_color = previous_colors[bar_index];
-  uint16_t x = LCD_PLOT_X + (uint16_t)(bar_index * LCD_BAR_STRIDE);
-  uint16_t color = spectrum_color_for_height(new_height);
+  uint16_t y = LCD_PLOT_Y + (uint16_t)(bar_index * LCD_BAR_STRIDE);
+  uint16_t color = spectrum_color_for_width(new_width);
 
-  if ((new_height > 0U) && (new_height == old_height) && (color != old_color))
+  if ((new_width > 0U) && (new_width == old_width) && (color != old_color))
   {
-    uint16_t y = LCD_BASELINE_Y - new_height;
-
-    ILI9341_FillRect(x, y, LCD_BAR_WIDTH, new_height, color);
+    ILI9341_FillRect(LCD_PLOT_X, y, new_width, LCD_BAR_HEIGHT, color);
   }
-  else if (new_height > old_height)
+  else if (new_width > old_width)
   {
-    uint16_t y = LCD_BASELINE_Y - new_height;
-
-    if ((old_height > 0U) && (color != old_color))
+    if ((old_width > 0U) && (color != old_color))
     {
-      ILI9341_FillRect(x, y, LCD_BAR_WIDTH, new_height, color);
+      ILI9341_FillRect(LCD_PLOT_X, y, new_width, LCD_BAR_HEIGHT, color);
     }
     else
     {
-      uint16_t grow = new_height - old_height;
+      uint16_t grow = new_width - old_width;
 
-      ILI9341_FillRect(x, y, LCD_BAR_WIDTH, grow, color);
+      ILI9341_FillRect(LCD_PLOT_X + old_width, y, grow, LCD_BAR_HEIGHT, color);
     }
   }
-  else if (old_height > new_height)
+  else if (old_width > new_width)
   {
-    uint16_t shrink = old_height - new_height;
-    uint16_t y = LCD_BASELINE_Y - old_height;
+    uint16_t shrink = old_width - new_width;
 
-    ILI9341_FillRect(x, y, LCD_BAR_WIDTH, shrink, COLOR_BLACK);
+    ILI9341_FillRect(LCD_PLOT_X + new_width, y, shrink, LCD_BAR_HEIGHT,
+                     COLOR_BLACK);
 
-    if (new_height > 0U)
+    if (new_width > 0U)
     {
-      y = LCD_BASELINE_Y - new_height;
-      ILI9341_FillRect(x, y, LCD_BAR_WIDTH, new_height, color);
+      ILI9341_FillRect(LCD_PLOT_X, y, new_width, LCD_BAR_HEIGHT, color);
     }
   }
-  else if (new_height > 0U)
+  else if (new_width > 0U)
   {
-    uint16_t y = LCD_BASELINE_Y - new_height;
-    ILI9341_FillRect(x, y, LCD_BAR_WIDTH, new_height, color);
+    ILI9341_FillRect(LCD_PLOT_X, y, new_width, LCD_BAR_HEIGHT, color);
   }
 
-  previous_heights[bar_index] = new_height;
+  previous_widths[bar_index] = new_width;
   previous_colors[bar_index] = color;
 }
 
 void lcd_init(void)
 {
   ILI9341_Init();
+  calculate_log_bin_edges();
   lcd_clear_spectrum();
 }
 
@@ -176,7 +239,7 @@ void lcd_clear_spectrum(void)
 
   for (uint32_t i = 0; i < LCD_BAR_COUNT; i++)
   {
-    previous_heights[i] = 0;
+    previous_widths[i] = 0;
     previous_colors[i] = COLOR_BLACK;
   }
 
@@ -185,6 +248,11 @@ void lcd_clear_spectrum(void)
 
 void lcd_update_spectrum(const uint16_t magnitudes[AUDIO_FFT_BIN_COUNT])
 {
+  if (!has_calculated_edges)
+  {
+    calculate_log_bin_edges();
+  }
+
   uint16_t frame_peak = find_spectrum_peak(magnitudes);
 
   update_display_peak(frame_peak);
@@ -192,9 +260,9 @@ void lcd_update_spectrum(const uint16_t magnitudes[AUDIO_FFT_BIN_COUNT])
   for (uint32_t i = 0; i < LCD_BAR_COUNT; i++)
   {
     uint16_t magnitude = average_bin_group(magnitudes, i);
-    uint16_t height = magnitude_to_height(magnitude);
+    uint16_t width = magnitude_to_width(magnitude);
 
-    draw_bar_delta(i, height);
+    draw_bar_delta(i, width);
   }
 }
 
